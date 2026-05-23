@@ -1,28 +1,24 @@
-from esphome.components import cover
-import esphome.config_validation as cv
 import esphome.codegen as cg
-from esphome.const import (
-  CONF_ID
-)
+import esphome.config_validation as cv
+from esphome.components import cover
+from esphome.const import CONF_ID, CONF_NAME
+from .. import hcpbridge_ns, CONF_HCPBridge_ID, HCPBridge
 
-from .. import hcpbridge_ns, HCPBridge, CONF_HCPBridge_ID
+DEPENDENCIES = ["hcpbridge"]
 
-DEPENDENCIES = ['hcpbridge']
+HCPBridgeCover = hcpbridge_ns.class_("HCPBridgeCover", cover.Cover, cg.Component)
 
-HCPBridgeCover = hcpbridge_ns.class_("HCPBridgeCover", cover.Cover, cg.PollingComponent)
-
-CONFIG_SCHEMA = cv.All(
-  cover.cover_schema(HCPBridgeCover)
-  .extend(
-      {
-        cv.GenerateID(CONF_HCPBridge_ID): cv.use_id(HCPBridge),
-      }
-  ).extend(cv.polling_component_schema("500ms")),
-)
+CONFIG_SCHEMA = cover.cover_schema(HCPBridgeCover).extend({
+  cv.GenerateID(): cv.declare_id(HCPBridgeCover),
+  cv.Optional(CONF_NAME, default="Garage Cover"): cv.string,
+  cv.Optional(CONF_HCPBridge_ID, default=CONF_HCPBridge_ID): cv.use_id(HCPBridge),
+}).extend(cv.COMPONENT_SCHEMA)
 
 async def to_code(config):
   var = cg.new_Pvariable(config[CONF_ID])
   await cg.register_component(var, config)
   await cover.register_cover(var, config)
-  parent = await cg.get_variable(config[CONF_HCPBridge_ID])
-  cg.add(var.set_hcpbridge_parent(parent))
+
+  hcp = await cg.get_variable(config[CONF_HCPBridge_ID])
+  cg.add(var.set_parent(hcp))
+  cg.add(hcp.set_cover(var))

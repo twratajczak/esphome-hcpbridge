@@ -2,32 +2,43 @@
 
 #include "esphome/core/component.h"
 #include "esphome/components/cover/cover.h"
-#include "esphome/components/api/custom_api_device.h"
-#include "../hcpbridge.h"
 
-namespace esphome
-{
-  namespace hcpbridge
-  {
-    class HCPBridgeCover : public cover::Cover, public PollingComponent, public api::CustomAPIDevice
-    {
-    public:
-      cover::CoverTraits get_traits() override;
-      void control(const cover::CoverCall &call) override;
-      void set_hcpbridge_parent(HCPBridge *parent) { this->parent_ = parent; }
-      void update() override;
-      void setup() override;
+namespace esphome {
+namespace hcpbridge {
 
-      // Home Assistant service handler
-      void on_go_to_half();
-      void on_go_to_open();
-      void on_go_to_close();
-      void on_go_to_vent();
+class HCPBridge;
+struct hcp_broadcast;
 
-    private:
-      HCPBridge *parent_;
-      float previousPosition_ = 0.0f;
-      cover::CoverOperation previousOperation_ = cover::COVER_OPERATION_IDLE;
-    };
-  }
-}
+enum HCPState {
+  STOPPED = 0x00,
+  OPENING = 0x01,
+  CLOSING = 0x02,
+  MOVE_HALF = 0x05,
+  MOVE_VENTING = 0x09,
+  VENT = 0x0A,
+  OPEN = 0x20,
+  CLOSED = 0x40,
+  HALFOPEN = 0x80,
+  UNKNOWN = 0xFF,
+};
+
+inline constexpr uint8_t POSITION_OPEN = 0xC8;
+inline constexpr uint8_t POSITION_NULL = 0xFF;
+
+class HCPBridgeCover : public cover::Cover, public Component {
+ public:
+  cover::CoverTraits get_traits() override;
+  void control(const cover::CoverCall &) override;
+  void set_parent(HCPBridge *);
+  void update(const hcp_broadcast *);
+
+ protected:
+  HCPBridge *parent_{nullptr};
+
+  HCPState last_state_{UNKNOWN};
+  uint8_t last_position_{POSITION_NULL};
+  uint8_t target_position_{POSITION_NULL};
+};
+
+} // namespace hcpbridge
+} // namespace esphome

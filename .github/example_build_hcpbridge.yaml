@@ -1,12 +1,5 @@
 esphome:
   name: hcpbridge
-  libraries:
-    - emelianov/modbus-esp8266
-  platformio_options:
-    board_build.f_cpu: 240000000L
-    board_build.flash_mode: qio
-    monitor_speed: 9600
-    monitor_filters: esp32_exception_decoder
 
 external_components:
   - source:
@@ -14,35 +7,28 @@ external_components:
       path: "../components/"
 
 esp32:
-  board: adafruit_feather_esp32s3
-  framework:
-    type: arduino
-
-hcpbridge:
-  is_connected:
-    name: "HCPBridge Connected"
-  rx_pin: 18 # optional, default=18
-  tx_pin: 17 # optional, default=17
-
-cover:
-  - platform: hcpbridge
-    name: Garage Door
-    id: garagedoor_cover
-
-switch:
-  - platform: hcpbridge
-    name: Garage Light
+  board: esp32-s3-devkitc-1
 
 wifi:
   ssid: "My Network"
   password: "My Password"
 
-api:
-  custom_services: true
+uart:
+  tx_pin: GPIO17
+  rx_pin: GPIO18
+  baud_rate: 57600
+  data_bits: 8
+  stop_bits: 1
+  parity: EVEN
 
-button:
-  platform: template
-  name: "Garage Door Vent"
-  on_press:
-    - lambda: |-
-        id(garagedoor_cover).on_go_to_vent();
+hcpbridge:
+  id: hcpbridge_id
+
+cover:
+  - platform: hcpbridge
+
+binary_sensor:
+  - platform: hcpbridge
+
+light:
+  - platform: hcpbridge

@@ -1,122 +1,98 @@
+#include "../hcpbridge.h"
 #include "hcpbridge_cover.h"
 
-namespace esphome
-{
-  namespace hcpbridge
-  {
-    static const char *const TAG = "hcpbridge.cover";
+namespace esphome {
+namespace hcpbridge {
 
-    void HCPBridgeCover::setup()
-    {
-      register_service(&HCPBridgeCover::on_go_to_open, "go_to_open");
-      register_service(&HCPBridgeCover::on_go_to_close, "go_to_close");
-      register_service(&HCPBridgeCover::on_go_to_half, "go_to_half");
-      register_service(&HCPBridgeCover::on_go_to_vent, "go_to_vent");
+cover::CoverTraits HCPBridgeCover::get_traits() {
+  auto traits = cover::CoverTraits();
+  traits.set_supports_stop(true);
+  traits.set_supports_position(true);
+  return traits;
+}
+
+void HCPBridgeCover::control(const cover::CoverCall &call) {
+  if (this->parent_ == nullptr) return;
+
+  if (call.get_stop()) {
+    if (this->current_operation == esphome::cover::COVER_OPERATION_OPENING) {
+      this->parent_->set_command(CMD_OPEN);
+    } else if (this->current_operation == esphome::cover::COVER_OPERATION_CLOSING) {
+      this->parent_->set_command(CMD_CLOSE);
     }
+    return;
+  }
 
-    void HCPBridgeCover::on_go_to_open()
-    {
-      ESP_LOGD(TAG, "HCPBridgeCover::on_go_to_open() - opening");
-      this->parent_->engine->openDoor();
+  if (call.get_toggle()) {
+    this->parent_->set_command(CMD_TOGGLE);
+    return;
+  }
+
+  if (call.get_position().has_value()) {
+    float target_position = *call.get_position();
+    if (target_position == cover::COVER_OPEN) {
+      this->parent_->set_command(CMD_OPEN);
+    } else if (target_position == cover::COVER_CLOSED) {
+      this->parent_->set_command(CMD_CLOSE);
+    } else {
+      this->target_position_ = POSITION_OPEN * target_position;
     }
-
-    void HCPBridgeCover::on_go_to_close()
-    {
-      ESP_LOGD(TAG, "HCPBridgeCover::on_go_to_close() - closing");
-      this->parent_->engine->closeDoor();
-    }
-
-    void HCPBridgeCover::on_go_to_half()
-    {
-      ESP_LOGD(TAG, "HCPBridgeCover::on_go_to_half() - half opening");
-      this->parent_->engine->halfPositionDoor();
-    }
-
-    void HCPBridgeCover::on_go_to_vent()
-    {
-      ESP_LOGD(TAG, "HCPBridgeCover::on_go_to_vent() - venting");
-      this->parent_->engine->ventilationPositionDoor();
-    }
-
-    cover::CoverTraits HCPBridgeCover::get_traits()
-    {
-      auto traits = cover::CoverTraits();
-      traits.set_is_assumed_state(true);
-      traits.set_supports_position(true);
-      traits.set_supports_tilt(false);
-      traits.set_supports_stop(true);
-      return traits;
-    }
-
-    void HCPBridgeCover::control(const cover::CoverCall &call)
-    {
-      if (call.get_stop())
-      {
-        this->parent_->engine->stopDoor();
-      }
-      if (call.get_position().has_value())
-      {
-        if (call.get_position().value() == 1.0f)
-        {
-          this->parent_->engine->openDoor();
-        }
-        else if (call.get_position().value() == 0.0f)
-        {
-          this->parent_->engine->closeDoor();
-        }
-        else
-        {
-          this->parent_->engine->setPosition(call.get_position().value() * 100.0f);
-        }
-      }
-    }
-
-    void HCPBridgeCover::update()
-    {
-      if (!this->parent_->engine->state->valid)
-      {
-        if (!this->status_has_warning())
-        {
-          ESP_LOGD(TAG, "HCPBridgeCover::update() - state is invalid");
-          this->status_set_warning();
-        }
-        return;
-      }
-      if (this->status_has_warning())
-      {
-        ESP_LOGD(TAG, "HCPBridgeCover::update() - clearing warning");
-        this->status_clear_warning();
-      }
-
-      switch (this->parent_->engine->state->state)
-      {
-      case HoermannState::OPENING:
-      case HoermannState::MOVE_VENTING:
-      case HoermannState::MOVE_HALF:
-        this->current_operation = cover::COVER_OPERATION_OPENING;
-        break;
-      case HoermannState::CLOSING:
-        this->current_operation = cover::COVER_OPERATION_CLOSING;
-        break;
-      case HoermannState::OPEN:
-      case HoermannState::CLOSED:
-      case HoermannState::STOPPED:
-      case HoermannState::HALFOPEN:
-      case HoermannState::VENT:
-        this->current_operation = cover::COVER_OPERATION_IDLE;
-        break;
-      }
-      this->position = this->parent_->engine->state->currentPosition;
-      if (this->previousPosition_ != this->position || this->previousOperation_ != this->current_operation)
-      {
-        ESP_LOGV(TAG, "HCPBridgeCover::update() - position is %f", this->position);
-        ESP_LOGV(TAG, "HCPBridgeCover::update() - operation is %d", this->current_operation);
-        ESP_LOGD(TAG, "HCPBridgeCover::update() - state changed");
-        this->publish_state(false);
-        this->previousPosition_ = this->position;
-        this->previousOperation_ = this->current_operation;
-      }
-    }
-
   }
 }
+
+void HCPBridgeCover::set_parent(HCPBridge *parent) {
+  this->parent_ = parent;
+}
+
+void HCPBridgeCover::update(const hcp_broadcast *bcast) {
+  bool changed = false;
+
+  if (this->last_position_ != bcast->position) {
+    changed = true;
+    this->last_position_ = bcast->position;
+
+    this->position = this->last_position_ / (float) POSITION_OPEN;
+  }
+
+  if (this->last_state_ != bcast->state) {
+    changed = true;
+    this->last_state_ = (HCPState) bcast->state;
+
+    switch (this->last_state_) {
+    case HCPState::OPENING:
+      this->current_operation = esphome::cover::COVER_OPERATION_OPENING;
+      break;
+    case HCPState::CLOSING:
+      this->current_operation = esphome::cover::COVER_OPERATION_CLOSING;
+      break;
+    case HCPState::MOVE_HALF:
+    case HCPState::MOVE_VENTING:
+      if (bcast->position < bcast->position_target) {
+        this->current_operation = esphome::cover::COVER_OPERATION_OPENING;
+      } else {
+        this->current_operation = esphome::cover::COVER_OPERATION_CLOSING;
+      }
+      break;
+    default:
+      this->current_operation = esphome::cover::COVER_OPERATION_IDLE;
+    }
+  }
+
+  if (this->parent_->can_set_command() && this->last_state_ != HCPState::UNKNOWN) {
+    if (this->target_position_ == POSITION_NULL) {
+      // noop
+    } else if (this->last_position_ < this->target_position_) {
+      if (this->last_state_ != HCPState::OPENING) this->parent_->set_command(CMD_OPEN);
+    } else if (this->last_position_ > this->target_position_) {
+      if (this->last_state_ != HCPState::CLOSING) this->parent_->set_command(CMD_CLOSE);
+    } else if (this->current_operation != esphome::cover::COVER_OPERATION_IDLE) {
+      this->parent_->set_command(CMD_TOGGLE);
+      this->target_position_ = POSITION_NULL;
+    }
+  }
+
+  if (changed) this->publish_state();
+}
+
+} // namespace hcpbridge
+} // namespace esphome
